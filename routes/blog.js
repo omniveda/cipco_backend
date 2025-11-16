@@ -1,6 +1,19 @@
 const express = require('express');
 const Blog = require('../models/Blog');
+const cloudinary = require('cloudinary').v2;
+const multer = require('multer');
 const router = express.Router();
+
+// Configure Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME || 'dgxv2hxu3',
+  api_key: process.env.CLOUDINARY_API_KEY || '712316799572447',
+  api_secret: process.env.CLOUDINARY_API_SECRET || 'oTvqH0dBTaNlfGsKBExSSWmHdZ4'
+});
+
+// Configure multer for memory storage
+const storage = multer.memoryStorage();
+const upload = multer({ storage: storage });
 
 // GET all published blogs
 router.get('/', async (req, res) => {
@@ -13,19 +26,19 @@ router.get('/', async (req, res) => {
 
     let query = { isPublished: true };
 
-    if (category && category !== 'all') {
-      query.category = category;
-    }
+    // Note: category filtering removed as category field is not in the schema
 
     if (search) {
-      query.$text = { $search: search };
+      query.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { content: { $regex: search, $options: 'i' } }
+      ];
     }
 
     const blogs = await Blog.find(query)
       .sort({ createdAt: -1 })
       .skip(skip)
-      .limit(limit)
-      .select('-content'); // Don't send full content in list
+      .limit(limit);
 
     const total = await Blog.countDocuments(query);
 
@@ -66,7 +79,7 @@ router.get('/:id', async (req, res) => {
 // GET blog categories
 router.get('/categories/list', async (req, res) => {
   try {
-    const categories = await Blog.distinct('category', { isPublished: true });
+    const categories = ['Journey', 'Partnership', 'Vision', 'Future', 'Quality', 'Global Health'];
     res.json(categories);
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -85,10 +98,33 @@ router.get('/admin/all', async (req, res) => {
   }
 });
 
-// CREATE new blog
-router.post('/admin/create', async (req, res) => {
+// CREATE new blog with image upload
+router.post('/admin/create', upload.single('image'), async (req, res) => {
   try {
-    const blog = new Blog(req.body);
+    let imageUrl = '';
+
+    // Upload image to Cloudinary if provided
+    if (req.file) {
+      const result = await new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          { folder: 'cipco-blogs' },
+          (error, result) => {
+            if (error) reject(error);
+            else resolve(result);
+          }
+        );
+        stream.end(req.file.buffer);
+      });
+      imageUrl = result.secure_url;
+    }
+
+    const blogData = {
+      ...req.body,
+      image: imageUrl,
+      tags: req.body.tags ? req.body.tags.split(',').map(tag => tag.trim()) : []
+    };
+
+    const blog = new Blog(blogData);
     const savedBlog = await blog.save();
     res.status(201).json(savedBlog);
   } catch (error) {
@@ -96,20 +132,44 @@ router.post('/admin/create', async (req, res) => {
   }
 });
 
-// UPDATE blog
-router.put('/admin/:id', async (req, res) => {
+// UPDATE blog with image upload
+router.put('/admin/:id', upload.single('image'), async (req, res) => {
   try {
-    const blog = await Blog.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      { new: true, runValidators: true }
-    );
-    
+    const blog = await Blog.findById(req.params.id);
     if (!blog) {
       return res.status(404).json({ message: 'Blog not found' });
     }
 
-    res.json(blog);
+    let imageUrl = blog.image; // Keep existing image if no new one uploaded
+
+    // Upload new image to Cloudinary if provided
+    if (req.file) {
+      const result = await new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          { folder: 'cipco-blogs' },
+          (error, result) => {
+            if (error) reject(error);
+            else resolve(result);
+          }
+        );
+        stream.end(req.file.buffer);
+      });
+      imageUrl = result.secure_url;
+    }
+
+    const updateData = {
+      ...req.body,
+      image: imageUrl,
+      tags: req.body.tags ? req.body.tags.split(',').map(tag => tag.trim()) : blog.tags
+    };
+
+    const updatedBlog = await Blog.findByIdAndUpdate(
+      req.params.id,
+      updateData,
+      { new: true, runValidators: true }
+    );
+
+    res.json(updatedBlog);
   } catch (error) {
     res.status(400).json({ message: 'Error updating blog', error: error.message });
   }

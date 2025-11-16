@@ -10,23 +10,23 @@ const blogSchema = new mongoose.Schema({
     type: String,
     required: true
   },
-  author: {
+  summary: {
     type: String,
     required: true,
-    default: 'Admin'
+    trim: true
   },
   category: {
     type: String,
     required: true,
-    enum: ['Research', 'Sustainability', 'Innovation', 'Future', 'Quality', 'Global Health']
+    trim: true
+  },
+  date: {
+    type: String,
+    required: true
   },
   image: {
     type: String,
     default: ''
-  },
-  summary: {
-    type: String,
-    required: true
   },
   tags: [{
     type: String,
@@ -49,8 +49,8 @@ const blogSchema = new mongoose.Schema({
 });
 
 // Index for better query performance
-blogSchema.index({ title: 'text', content: 'text', summary: 'text' });
-blogSchema.index({ category: 1, isPublished: 1 });
+blogSchema.index({ title: 'text', content: 'text' });
+blogSchema.index({ isPublished: 1 });
 blogSchema.index({ createdAt: -1 });
 
 module.exports = mongoose.model('Blog', blogSchema);

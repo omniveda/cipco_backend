@@ -3,7 +3,20 @@ const { verifyToken } = require('./auth');
 const Blog = require('../models/Blog');
 const Contact = require('../models/Contact');
 const User = require('../models/User');
+const cloudinary = require('cloudinary').v2;
+const multer = require('multer');
 const router = express.Router();
+
+// Configure Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME || 'dgxv2hxu3',
+  api_key: process.env.CLOUDINARY_API_KEY || '712316799572447',
+  api_secret: process.env.CLOUDINARY_API_SECRET || 'oTvqH0dBTaNlfGsKBExSSWmHdZ4'
+});
+
+// Configure multer for memory storage
+const storage = multer.memoryStorage();
+const upload = multer({ storage: storage });
 
 // Apply authentication middleware to all admin routes
 router.use(verifyToken);
@@ -36,10 +49,33 @@ router.get('/blogs', requireAdmin, async (req, res) => {
   }
 });
 
-// CREATE new blog
-router.post('/blogs', requireAdmin, async (req, res) => {
+// CREATE new blog with image upload
+router.post('/blogs', requireAdmin, upload.single('image'), async (req, res) => {
   try {
-    const blog = new Blog(req.body);
+    let imageUrl = '';
+
+    // Upload image to Cloudinary if provided
+    if (req.file) {
+      const result = await new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          { folder: 'cipco-blogs' },
+          (error, result) => {
+            if (error) reject(error);
+            else resolve(result);
+          }
+        );
+        stream.end(req.file.buffer);
+      });
+      imageUrl = result.secure_url;
+    }
+
+    const blogData = {
+      ...req.body,
+      image: imageUrl,
+      tags: req.body.tags ? req.body.tags.split(',').map(tag => tag.trim()) : []
+    };
+
+    const blog = new Blog(blogData);
     const savedBlog = await blog.save();
     res.status(201).json(savedBlog);
   } catch (error) {
@@ -47,20 +83,44 @@ router.post('/blogs', requireAdmin, async (req, res) => {
   }
 });
 
-// UPDATE blog
-router.put('/blogs/:id', requireAdmin, async (req, res) => {
+// UPDATE blog with image upload
+router.put('/blogs/:id', requireAdmin, upload.single('image'), async (req, res) => {
   try {
-    const blog = await Blog.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      { new: true, runValidators: true }
-    );
-
+    const blog = await Blog.findById(req.params.id);
     if (!blog) {
       return res.status(404).json({ message: 'Blog not found' });
     }
 
-    res.json(blog);
+    let imageUrl = blog.image; // Keep existing image if no new one uploaded
+
+    // Upload new image to Cloudinary if provided
+    if (req.file) {
+      const result = await new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          { folder: 'cipco-blogs' },
+          (error, result) => {
+            if (error) reject(error);
+            else resolve(result);
+          }
+        );
+        stream.end(req.file.buffer);
+      });
+      imageUrl = result.secure_url;
+    }
+
+    const updateData = {
+      ...req.body,
+      image: imageUrl,
+      tags: req.body.tags ? req.body.tags.split(',').map(tag => tag.trim()) : blog.tags
+    };
+
+    const updatedBlog = await Blog.findByIdAndUpdate(
+      req.params.id,
+      updateData,
+      { new: true, runValidators: true }
+    );
+
+    res.json(updatedBlog);
   } catch (error) {
     res.status(400).json({ message: 'Error updating blog', error: error.message });
   }
