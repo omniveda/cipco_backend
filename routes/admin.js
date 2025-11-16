@@ -3,6 +3,7 @@ const { verifyToken } = require('./auth');
 const Blog = require('../models/Blog');
 const Contact = require('../models/Contact');
 const User = require('../models/User');
+const Team = require('../models/Team');
 const cloudinary = require('cloudinary').v2;
 const multer = require('multer');
 const router = express.Router();
@@ -272,19 +273,123 @@ router.delete('/users/:id', requireSuperAdmin, async (req, res) => {
   }
 });
 
+// TEAM MANAGEMENT ROUTES
+
+// GET all team members
+router.get('/teams', requireAdmin, async (req, res) => {
+  try {
+    const teams = await Team.find().sort({ createdAt: -1 });
+    res.json(teams);
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// CREATE new team member with image upload
+router.post('/teams', requireAdmin, upload.single('image'), async (req, res) => {
+  try {
+    let imageUrl = '';
+
+    // Upload image to Cloudinary if provided
+    if (req.file) {
+      const result = await new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          { folder: 'cipco-teams' },
+          (error, result) => {
+            if (error) reject(error);
+            else resolve(result);
+          }
+        );
+        stream.end(req.file.buffer);
+      });
+      imageUrl = result.secure_url;
+    }
+
+    const teamData = {
+      ...req.body,
+      image: imageUrl
+    };
+
+    const team = new Team(teamData);
+    const savedTeam = await team.save();
+    res.status(201).json(savedTeam);
+  } catch (error) {
+    res.status(400).json({ message: 'Error creating team member', error: error.message });
+  }
+});
+
+// UPDATE team member with image upload
+router.put('/teams/:id', requireAdmin, upload.single('image'), async (req, res) => {
+  try {
+    const team = await Team.findById(req.params.id);
+    if (!team) {
+      return res.status(404).json({ message: 'Team member not found' });
+    }
+
+    let imageUrl = team.image; // Keep existing image if no new one uploaded
+
+    // Upload new image to Cloudinary if provided
+    if (req.file) {
+      const result = await new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          { folder: 'cipco-teams' },
+          (error, result) => {
+            if (error) reject(error);
+            else resolve(result);
+          }
+        );
+        stream.end(req.file.buffer);
+      });
+      imageUrl = result.secure_url;
+    }
+
+    const updateData = {
+      ...req.body,
+      image: imageUrl
+    };
+
+    const updatedTeam = await Team.findByIdAndUpdate(
+      req.params.id,
+      updateData,
+      { new: true, runValidators: true }
+    );
+
+    res.json(updatedTeam);
+  } catch (error) {
+    res.status(400).json({ message: 'Error updating team member', error: error.message });
+  }
+});
+
+// DELETE team member
+router.delete('/teams/:id', requireAdmin, async (req, res) => {
+  try {
+    const team = await Team.findByIdAndDelete(req.params.id);
+
+    if (!team) {
+      return res.status(404).json({ message: 'Team member not found' });
+    }
+
+    res.json({ message: 'Team member deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
 // DASHBOARD STATS
 router.get('/stats', requireAdmin, async (req, res) => {
   try {
-    const [blogCount, contactCount, userCount] = await Promise.all([
+    const [blogCount, contactCount, userCount, teamCount] = await Promise.all([
       Blog.countDocuments(),
       Contact.countDocuments(),
-      User.countDocuments()
+      User.countDocuments(),
+      Team.countDocuments()
     ]);
 
     res.json({
       blogs: blogCount,
       contacts: contactCount,
-      users: userCount
+      users: userCount,
+      teams: teamCount
     });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });

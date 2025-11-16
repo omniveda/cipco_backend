@@ -4,6 +4,7 @@ const blogRoutes = require('./routes/blog');
 const contactRoutes = require('./routes/contact');
 const authRoutes = require('./routes/auth');
 const adminRoutes = require('./routes/admin');
+const teamRoutes = require('./routes/teams');
 const mongoose = require('mongoose');
 const dotenv = require('dotenv');
 
@@ -50,6 +51,9 @@ mongoose.connect('mongodb+srv://cipcolimited_db_user:2vWtikBrDIZCLxZL@cluster0.d
 
   // Admin routes
   app.use('/api/admin', adminRoutes);
+
+  // Team routes
+  app.use('/api/teams', teamRoutes);
 
   // Health check endpoint
   app.get('/api/health', (req, res) => {
